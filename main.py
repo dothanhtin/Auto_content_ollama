@@ -1,7 +1,30 @@
 import requests
+from wordpress_xmlrpc import Client, WordPressPost
+from wordpress_xmlrpc.methods.posts import NewPost
+from wordpress_xmlrpc.methods.taxonomies import GetTerms
+from wordpress_xmlrpc.methods.media import UploadFile
+import xmlrpc.client
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Cấu hình API cục bộ của Ollama
 LOCAL_API_URL = "http://localhost:11434/api/generate"  # Endpoint API cục bộ
+
+# Cấu hình Wordpress để tự đăng bài
+wp_url = "https://niceplanet.xyz/xmlrpc.php"
+wp_username = "tindtadmin"
+wp_password = "Ss123456789@"
+wp_client = Client(wp_url, wp_username, wp_password)
+
+# Cấu hình Youtube API
+youtube_api_key = "AIzaSyC9TRScaHRzBKbuRjyeyjSZceDxWLhnvX8"
+your_groq_api_key = "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"
+
+# Cấu hình Unsplash API để lấy ảnh tự động
+image_api_key = "WCHwX4o62UMcUKL24mc-zbWr3EFgzkufKm5U3pf0OwY"
+image_base_url = "https://api.unsplash.com/search/photos"
+
 
 # Hàm gọi API Ollama cục bộ
 def call_local_ollama(prompt, model="llama3:8b"):
@@ -71,7 +94,19 @@ def find_secondary_keywords(keyword):
     """
     prompt = f"""
     Identify secondary, NLP, and LSI keywords related to '{keyword}' that are relevant and have low competition but decent search volume.
-    Arrange them in separate lists.
+    with main format:
+        **Secondary Keywords**
+        1. 
+        2.
+        ...
+        **NLP Keywords**
+        1.
+        2.
+        ...
+        **LSI Keywords**
+        1.
+        2.
+        ....
     """
     # Gọi hàm xử lý của mô hình AI
     result_text = call_local_ollama(prompt)
@@ -363,18 +398,149 @@ def create_seo_content_outline(keyword):
 
 # 8. Tối ưu outline
 def optimize_outline(outline, keyword):
+    """
+    Optimize the outline for a given keyword, adding a title and meta description.
+
+    Parameters:
+        outline (str): The original outline to optimize.
+        keyword (str): The primary keyword to target.
+
+    Returns:
+        dict: A dictionary containing:
+            - title: The optimized title.
+            - meta_description: The optimized meta description.
+            - optimized_outline: The original outline as returned by Ollama.
+    """
     prompt = f"""
-    Please Optimize this outline to target the primary keyword '{keyword}' at a 3% density. Use other keywords naturally. Add an FAQ section.
+    Please optimize this outline to target the primary keyword '{keyword}' at a 3% density. 
+    Use other keywords naturally. Add an FAQ section and provide an appropriate title and meta description.
+    Format output:
+        **Title:**...
+        **Meta Description:**....
+        **Optimized Outline:**...
+        **FAQ Section:**...
     Outline: {outline}
+    """
+    result_text = call_local_ollama(prompt)
+
+    try:
+        # Extract Title
+        title_start = result_text.find("**Title:**")
+        title_end = result_text.find("\n", title_start)
+        title = result_text[title_start + 10:title_end].strip() if title_start != -1 else ""
+
+        # Extract Meta Description
+        meta_start = result_text.find("**Meta Description:**")
+        meta_end = result_text.find("\n", meta_start)
+        meta_description = (
+            result_text[meta_start + 20:meta_end].strip() if meta_start != -1 else ""
+        )
+
+        # Extract Optimized Outline
+        outline_start = result_text.find("**Optimized Outline:**")
+        optimized_outline = (
+            result_text[outline_start:].strip() if outline_start != -1 else result_text
+        )
+
+        return {
+            "title": title,
+            "meta_description": meta_description,
+            "optimized_outline": optimized_outline,
+        }
+
+    except Exception as e:
+        # Handle errors during processing
+        print(f"Error processing outline: {e}")
+        return {
+            "title": "",
+            "meta_description": "",
+            "optimized_outline": outline,
+        }
+
+
+
+# 9. Viết nội dung
+def write_content(outline, keyword, secondaryKeywords,LSIandNLPKeywords):
+    prompt = f"""
+    Start writing the content with {outline}, one section at a time, auto next section and combine all section to an completed article. Utilize the {keyword}, secondary keywords: {secondaryKeywords}, LSI and NLP keywords : {LSIandNLPKeywords} listed through out the content naturally. Also, maintain the word count specified for each section. Note that I want the content to be written like it was written by a subject matter expert, without fluff or jargon. The content you produce should also have low AI content detection scores and should reflect the same when passed through AI content detectors. Write in a [tone/style: informative] voice that engages the reader. The content should sound like it was written by a person, not a machine. Avoid clichés, jargon, and overly complex sentence structures.. Focus on originality. Do not plagiarize existing work. Ensure the facts and ideas presented are accurate and well-researched.
+    output is only completed article to retrieve data easily to post wordpress.
     """
     return call_local_ollama(prompt)
 
-# 4. Viết nội dung
-def write_content(outline, keyword, secondaryKeywords,LSIandNLPKeywords):
-    prompt = f"""
-    Start writing the content with {outline}. Utilize the {keyword}, secondary keywords: {secondaryKeywords}, LSI and NLP keywords : {LSIandNLPKeywords} listed through out the content naturally. Also, maintain the word count specified for each section. Note that I want the content to be written like it was written by a subject matter expert, without fluff or jargon. The content you produce should also have low AI content detection scores and should reflect the same when passed through AI content detectors. Write in a [tone/style: informative] voice that engages the reader. The content should sound like it was written by a person, not a machine. Avoid clichés, jargon, and overly complex sentence structures.. Focus on originality. Do not plagiarize existing work. Ensure the facts and ideas presented are accurate and well-researched.
+# Fetch relevant image
+def get_image_url(query):
+    headers = {"Authorization": f"Client-ID {image_api_key}"}
+    params = {"query": query, "per_page": 1}
+    response = requests.get(image_base_url, headers=headers, params=params)
+    data = response.json()
+
+    if data['results']:
+        return data['results'][0]['urls']['regular']
+    return None
+
+def get_youtube_video_id(query, youtube_api_key):
+    youtube = build("youtube", "v3", developerKey=youtube_api_key)
+
+    try:
+        response = youtube.search().list(
+            q=query,
+            part="id,snippet",
+            maxResults=1,
+            type="video",
+        ).execute()
+
+        if response["items"]:
+            return response["items"][0]["id"]["videoId"]
+            print("youtube is found!")
+        return None
+        print("youttube is not found!")
+
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        return None
+    
+#format title    
+def format_title(title):
     """
-    return call_local_ollama(prompt)
+    Format a WordPress title by:
+    - Removing '**' characters.
+    - Removing any "(Word count: ...)" substring.
+
+    Parameters:
+        title (str): The original title.
+
+    Returns:
+        str: The formatted title.
+    """
+    import re
+    # Remove '**' characters
+    title = title.replace("**", "")
+    # Remove "(Word count: ...)" using regex
+    title = re.sub(r"\(Word count:.*?\)", "", title).strip()
+    return title
+
+#format content
+def format_content(content):
+    """
+    Format WordPress content by:
+    - Removing the line "Here is the completed article:".
+    - Converting lines surrounded by '**' to H2 headers (<h2>...</h2>).
+
+    Parameters:
+        content (str): The original content.
+
+    Returns:
+        str: The formatted content.
+    """
+    import re
+    # Remove the specific line "Here is the completed article:"
+    content = content.replace("Here is the completed article:", "").strip()
+    
+    # Replace lines surrounded by '**' with <h2>...</h2>
+    content = re.sub(r"\*\*(.*?)\*\*", r"<h2>\1</h2>", content)
+    
+    return content
+
 
 # Quy trình thực hiện
 if __name__ == "__main__":
@@ -393,10 +559,44 @@ if __name__ == "__main__":
 
         # Bước 3: Tối ưu outline
         optimized_outline = optimize_outline(outline, main_keyword)
-        print("\nOptimized Outline:\n", optimized_outline)
+        print("\nOptimized Outline:\n", optimized_outline["optimized_outline"])
 
         # Bước 4: Viết nội dung
-        content = write_content(optimized_outline, main_keyword,secondary_keywords["concatenated_secondary_keywords"],secondary_keywords["concatenated_nlp_lsi_keywords"])
+        content = write_content(optimized_outline["optimized_outline"], main_keyword,secondary_keywords["concatenated_secondary_keywords"],secondary_keywords["concatenated_nlp_lsi_keywords"])
         print("\nContent:\n", content)
+
+        # Đăng bài lên wordpress
+        post = WordPressPost()
+        formatted_title  = format_title(optimized_outline["title"])
+        post.title = formatted_title
+        formatted_content = format_content(content)
+        post.content = formatted_content
+        '''post.terms_names = {
+            'post_tag': tags,
+            'category': categories,
+        }'''
+         # Lấy ảnh
+        image_url = get_image_url(main_keyword)
+        image_data = requests.get(image_url).content if image_url else None
+
+        # Thêm video vào đầu bài viết
+        video_id = get_youtube_video_id(main_keyword, youtube_api_key)
+        if video_id:
+            youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+            blog_content = f"{youtube_embed}\n\n{content}"
+        # Đăng ảnh 
+        if image_data:
+            image_name = f"{main_keyword.replace(' ', '_')}.jpg"
+            data = {
+                'name': image_name,
+                'type': 'image/jpeg',
+                'bits': xmlrpc.client.Binary(image_data),
+                'overwrite': True,
+            }
+            response = wp_client.call(UploadFile(data))
+            post.thumbnail = response['id']
+
+        post.post_status = 'publish'
+        post_id = wp_client.call(NewPost(post))
     else:
         print("No SEO analytics!")
