@@ -413,12 +413,11 @@ def optimize_outline(outline, keyword):
     """
     prompt = f"""
     Please optimize this outline to target the primary keyword '{keyword}' at a 3% density. 
-    Use other keywords naturally. Add an FAQ section and provide an appropriate title and meta description.
+    Use other keywords naturally. Add an FAQ section to Optimized Outline and provide an appropriate title and meta description.
     Format output:
         **Title:**...
         **Meta Description:**....
         **Optimized Outline:**...
-        **FAQ Section:**...
     Outline: {outline}
     """
     result_text = call_local_ollama(prompt)
@@ -520,26 +519,54 @@ def format_title(title):
     return title
 
 #format content
+import re
+
 def format_content(content):
     """
-    Format WordPress content by:
-    - Removing the line "Here is the completed article:".
-    - Converting lines surrounded by '**' to H2 headers (<h2>...</h2>).
+    Format the content by:
+    - Removing unnecessary phrases and lines.
+    - Formatting titles marked with '**' as <h2>.
+    - Removing "Section x" and any lines containing "Word count:".
 
     Parameters:
-        content (str): The original content.
+        content (str): The original content to format.
 
     Returns:
         str: The formatted content.
     """
-    import re
-    # Remove the specific line "Here is the completed article:"
-    content = content.replace("Here is the completed article:", "").strip()
-    
-    # Replace lines surrounded by '**' with <h2>...</h2>
-    content = re.sub(r"\*\*(.*?)\*\*", r"<h2>\1</h2>", content)
-    
-    return content
+    # List of phrases to completely remove (entire line will be removed)
+    phrases_to_remove = [
+        "Here is the completed article based on the optimized outline:",
+        "**Optimized Outline: Volvo's Electric Hybrid Efforts**",
+        "I hope this meets your requirements! Let me know if you need any further modifications."
+    ]
+
+    # Remove lines containing any phrase in `phrases_to_remove` or "Word count:"
+    content_lines = content.splitlines()
+    filtered_lines = [
+        line for line in content_lines
+        if not any(phrase in line for phrase in phrases_to_remove) and "Word count:" not in line
+    ]
+
+    # Process the filtered lines
+    processed_lines = []
+    for line in filtered_lines:
+        stripped_line = line.strip()
+
+        # Remove "Section x:" (e.g., "Section 1:") from the beginning of the line
+        stripped_line = re.sub(r"^Section\s+\d+:\s*", "", stripped_line)
+
+        # Convert lines starting and ending with '**' to H2
+        if stripped_line.startswith("**") and stripped_line.endswith("**"):
+            h2_content = stripped_line.strip("**").strip()
+            processed_lines.append(f"<h2>{h2_content}</h2>")
+        else:
+            processed_lines.append(stripped_line)
+
+    # Join the processed lines into the final content
+    formatted_content = "\n".join(processed_lines).strip()
+    return formatted_content
+
 
 
 # Quy trình thực hiện
