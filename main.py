@@ -10,6 +10,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Cấu hình API cục bộ của Ollama
 LOCAL_API_URL = "http://localhost:11434/api/generate"  # Endpoint API cục bộ
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+# OPENROUTER_API_KEY = "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"  # Deepseekfree_R1_apikey
+# OPENROUTER_API_KEY = "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"  # Deepseekfree_V3_apikey
+OPENROUTER_API_KEY = "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"  # Google flash thinking apikey
+
+
+# Tùy chọn sử dụng API (True = OpenRouter, False = Ollama Local)
+USE_OPENROUTER_API = True
 
 # Cấu hình Wordpress để tự đăng bài
 wp_url = "https://niceplanet.xyz/xmlrpc.php"
@@ -45,6 +53,48 @@ def call_local_ollama(prompt, model="llama3:8b"):
         print(f"Request failed: {e}")
         return None
 
+# Hàm gọi AI từ API phù hợp
+def call_ai_model(prompt, model="llama3:8b"):
+    """
+    Gọi AI từ API được chọn (Ollama hoặc OpenRouter AI).
+    
+    Parameters:
+        prompt (str): Nội dung prompt gửi đến AI.
+        model (str): Tên model sử dụng (chỉ áp dụng cho Ollama).
+
+    Returns:
+        str: Phản hồi từ AI.
+    """
+    if USE_OPENROUTER_API:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "deepseek/deepseek-chat:free",  # Model OpenRouter
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        api_url = OPENROUTER_API_URL
+    else:
+        data = {
+            "model": model,  # Model Ollama (local)
+            "prompt": prompt,
+            "stream": False
+        }
+        api_url = LOCAL_API_URL
+
+    try:
+        response = requests.post(api_url, json=data, headers=headers if USE_OPENROUTER_API else None)
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data.get("response", response_data.get("choices", [{}])[0].get("message", {}).get("content", "No response found"))
+        else:
+            print(f"Error: {response.status_code}, {response.text}")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
+
 # 0. Xác định vai trò SEO analytics cho AI
 def confirm_seo_analytics():
     prompt=f"""
@@ -64,9 +114,9 @@ def confirm_seo_analytics():
         ●	SEO Considerations: Highlight opportunities to optimize title tags, meta descriptions, header tags, and internal linking for relevant keywords.
         ●	Additional Notes: Any further insights on content promotion, link building, or other strategies to boost visibility.
         Feel free to use any relevant content analysis and SEO tools to aid your assessment. Remember, the goal is to create a content strategy that not only ranks well but truly resonates with readers and drives meaningful engagement.
-        Do you understand these revised instructions? You can response YES or NO. If so, acknowledge and await my next prompt.
+        Do you understand these revised instructions? You must response YES or NO. If so, acknowledge and await my next prompt.
     """
-    return call_local_ollama(prompt)
+    return call_ai_model(prompt)
 
 # 1. Phân tích chiến lược nội dung
 def analyze_content(keyword):
@@ -74,7 +124,7 @@ def analyze_content(keyword):
     You are a content strategist specializing in SEO. Create an outline for a blog targeting the keyword '{keyword}'. 
     Include an optimized title, meta description, H2 sections, and word count for each section.
     """
-    return call_local_ollama(prompt)
+    return call_ai_model(prompt)
 
 # 2. Tìm từ khóa phụ
 def find_secondary_keywords(keyword):
@@ -109,7 +159,7 @@ def find_secondary_keywords(keyword):
         ....
     """
     # Gọi hàm xử lý của mô hình AI
-    result_text = call_local_ollama(prompt)
+    result_text = call_ai_model(prompt)
 
     try:
         import re
@@ -177,7 +227,7 @@ def find_longterm_keywords(keyword):
     Arrange them in separate lists.
     """
     # Gọi hàm xử lý của mô hình để lấy kết quả từ prompt
-    result = call_local_ollama(prompt)
+    result = call_ai_model(prompt)
 
     # Giả sử `result` trả về một cấu trúc JSON dạng:
     # {
@@ -234,7 +284,7 @@ def analyze_site_keywords(keyword, site_list):
         Focus on keywords that are relevant to '{keyword}' and have high search volume and moderate to low competition.
         """
         # Gọi hàm xử lý của mô hình để lấy kết quả từ prompt
-        analysis_result = call_local_ollama(prompt)
+        analysis_result = call_ai_model(prompt)
 
         # Giả sử `analysis_result` trả về một cấu trúc JSON dạng:
         # {
@@ -289,7 +339,7 @@ def find_trending_keywords_and_topics(keyword):
     Consider factors like news events, social media trends, seasonal changes, and emerging technologies.
     """
     # Gọi hàm xử lý của mô hình để lấy kết quả từ prompt
-    result = call_local_ollama(prompt)
+    result = call_ai_model(prompt)
 
     # Giả sử `result` trả về một cấu trúc JSON dạng:
     # {
@@ -345,7 +395,7 @@ def find_local_keywords_and_phrases(keyword, location="US"):
     Also, consider keywords that reflect local search intent, such as "near me".
     """
     # Gọi hàm xử lý của mô hình AI để lấy kết quả từ prompt
-    local_keywords_result = call_local_ollama(prompt)
+    local_keywords_result = call_ai_model(prompt)
 
     # Giả sử `local_keywords_result` trả về một cấu trúc JSON dạng:
     # {
@@ -391,8 +441,8 @@ def create_seo_content_outline(keyword):
     For each section, include the amount of words. 
     Also, include an optimized title, meta description, and H2s.
     """
-    # Gọi hàm xử lý của mô hình (giả sử bạn có hàm `call_local_ollama` để giao tiếp với mô hình AI)
-    seo_outline = call_local_ollama(prompt)
+    # Gọi hàm xử lý của mô hình (giả sử bạn có hàm `call_ai_model` để giao tiếp với mô hình AI)
+    seo_outline = call_ai_model(prompt)
     return seo_outline
 
 
@@ -420,7 +470,7 @@ def optimize_outline(outline, keyword):
         **Optimized Outline:**...
     Outline: {outline}
     """
-    result_text = call_local_ollama(prompt)
+    result_text = call_ai_model(prompt)
 
     try:
         # Extract Title
@@ -464,7 +514,7 @@ def write_content(outline, keyword, secondaryKeywords,LSIandNLPKeywords):
     Start writing the content with {outline}, one section at a time, auto next section and combine all section to an completed article. Utilize the {keyword}, secondary keywords: {secondaryKeywords}, LSI and NLP keywords : {LSIandNLPKeywords} listed through out the content naturally. Also, maintain the word count specified for each section. Note that I want the content to be written like it was written by a subject matter expert, without fluff or jargon. The content you produce should also have low AI content detection scores and should reflect the same when passed through AI content detectors. Write in a [tone/style: informative] voice that engages the reader. The content should sound like it was written by a person, not a machine. Avoid clichés, jargon, and overly complex sentence structures.. Focus on originality. Do not plagiarize existing work. Ensure the facts and ideas presented are accurate and well-researched.
     output is only completed article to retrieve data easily to post wordpress.
     """
-    return call_local_ollama(prompt)
+    return call_ai_model(prompt)
 
 # Fetch relevant image
 def get_image_url(query):
