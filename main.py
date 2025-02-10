@@ -71,8 +71,8 @@ def call_ai_model(prompt, model="llama3:8b"):
             "Content-Type": "application/json"
         }
         data = {
-            "model": "deepseek/deepseek-chat:free",  # Model OpenRouter
-            "messages": [{"role": "user", "content": prompt}]
+            "model": "google/gemini-2.0-flash-thinking-exp:free",  # Model OpenRouter
+            "messages": [{"role": "user", "content": [{"type": "text", "text":prompt}]}]
         }
         api_url = OPENROUTER_API_URL
     else:
@@ -144,9 +144,9 @@ def find_secondary_keywords(keyword):
     """
     prompt = f"""
     Identify secondary, NLP, and LSI keywords related to '{keyword}' that are relevant and have low competition but decent search volume.
-    with main format:
+    with main format is easy retrive by coding such as:
         **Secondary Keywords**
-        1. 
+        1.
         2.
         ...
         **NLP Keywords**
@@ -622,7 +622,11 @@ def format_content(content):
 # Quy trình thực hiện
 if __name__ == "__main__":
     # Từ khóa chính
-    main_keyword = "volvo cars electric hybrid"
+    main_keyword = input("Nhập từ khóa chính (bấm Enter để dùng mặc định: 'volvo cars electric hybrid'): ").strip()
+    if not main_keyword:
+        main_keyword = "volvo cars electric hybrid"
+
+    print(f"Từ khóa chính: {main_keyword}")
 
     # Bước 0: Xác định vai trò SEO analytics cho AI
     confirm = confirm_seo_analytics()
@@ -647,7 +651,15 @@ if __name__ == "__main__":
         formatted_title  = format_title(optimized_outline["title"])
         post.title = formatted_title
         formatted_content = format_content(content)
-        post.content = formatted_content
+
+        # Thêm video vào đầu bài viết
+        video_id = get_youtube_video_id(main_keyword, youtube_api_key)
+        if video_id:
+            youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+            blog_content = f"{youtube_embed}\n\n{formatted_content}"
+            post.content = blog_content
+        else:
+            post.content = formatted_content
         '''post.terms_names = {
             'post_tag': tags,
             'category': categories,
@@ -656,11 +668,7 @@ if __name__ == "__main__":
         image_url = get_image_url(main_keyword)
         image_data = requests.get(image_url).content if image_url else None
 
-        # Thêm video vào đầu bài viết
-        video_id = get_youtube_video_id(main_keyword, youtube_api_key)
-        if video_id:
-            youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
-            blog_content = f"{youtube_embed}\n\n{content}"
+        
         # Đăng ảnh 
         if image_data:
             image_name = f"{main_keyword.replace(' ', '_')}.jpg"
