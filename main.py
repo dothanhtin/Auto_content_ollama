@@ -1,4 +1,6 @@
 import requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from wordpress_xmlrpc import Client, WordPressPost
 from wordpress_xmlrpc.methods.posts import NewPost
 from wordpress_xmlrpc.methods.taxonomies import GetTerms
@@ -7,6 +9,11 @@ import xmlrpc.client
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+
+app = FastAPI()
+class KeywordRequest(BaseModel):
+    keyword: str
 
 # Cấu hình API cục bộ của Ollama
 LOCAL_API_URL = "http://localhost:11434/api/generate"  # Endpoint API cục bộ
@@ -592,7 +599,9 @@ def format_content(content):
     ]
 
     # Remove lines containing any phrase in `phrases_to_remove` or "Word count:"
-    content_lines = content.splitlines()
+    content_lines = []
+    if content is not None:
+        content_lines = content.splitlines()  
     filtered_lines = [
         line for line in content_lines
         if not any(phrase in line for phrase in phrases_to_remove) and "Word count:" not in line
@@ -618,8 +627,81 @@ def format_content(content):
     return formatted_content
 
 
+# API thực hiện toàn bộ quy trình SEO
+@app.post("/seo_pipeline")
+def seo_pipeline(request: KeywordRequest):
+    keyword = request.keyword.strip()
+    if not keyword:
+        keyword = "volvo cars electric hybrid"
+    print(f"Từ khóa chính: {keyword}")
 
-# Quy trình thực hiện
+    confirm = confirm_seo_analytics()
+    if "YES" not in confirm:
+        raise HTTPException(status_code=400, detail="AI did not confirm SEO analytics role")
+    
+    # Bước 1: Phân tích và tạo outline
+    outline = create_seo_content_outline(keyword)
+
+    # Bước 2: Tìm từ khóa phụ, nsi, npl keywords
+    secondary_keywords = find_secondary_keywords(keyword)
+
+    # Bước 3: Tối ưu outline
+    optimized_outline = optimize_outline(outline, keyword)
+    print("\nOptimized Outline:\n", optimized_outline["optimized_outline"])
+
+    # Bước 4: Viết nội dung
+    content = write_content(optimized_outline["optimized_outline"], keyword,secondary_keywords["concatenated_secondary_keywords"],secondary_keywords["concatenated_nlp_lsi_keywords"])
+    print("\nContent:\n", content)
+
+    # Đăng bài lên wordpress
+    post = WordPressPost()
+    formatted_title  = format_title(optimized_outline["title"])
+    post.title = formatted_title
+    formatted_content = format_content(content)
+
+    # Thêm video vào đầu bài viết
+    video_id = get_youtube_video_id(keyword, youtube_api_key)
+    if video_id:
+        youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
+        blog_content = f"{youtube_embed}\n\n{formatted_content}"
+        post.content = blog_content
+    else:
+        post.content = formatted_content
+    '''post.terms_names = {
+        'post_tag': tags,
+        'category': categories,
+    }'''
+    # Lấy ảnh
+    '''image_url = get_image_url(main_keyword)
+    image_data = requests.get(image_url).content if image_url else None
+
+        
+    # Đăng ảnh 
+    if image_data:
+        image_name = f"{main_keyword.replace(' ', '_')}.jpg"
+        data = {
+            'name': image_name,
+            'type': 'image/jpeg',
+            'bits': xmlrpc.client.Binary(image_data),
+            'overwrite': True,
+        }
+        response = wp_client.call(UploadFile(data))
+        post.thumbnail = response['id']'''
+
+    post.post_status = 'publish'
+    post_id = wp_client.call(NewPost(post))
+    
+    return {
+        "keyword": keyword,
+        "outline": outline,
+        "secondary_keywords": secondary_keywords,
+        "optimized_outline": optimized_outline,
+        "content": content
+    }
+
+
+# Quy trình thực hiện run console
+'''
 if __name__ == "__main__":
     # Từ khóa chính
     main_keyword = input("Nhập từ khóa chính (bấm Enter để dùng mặc định: 'volvo cars electric hybrid'): ").strip()
@@ -660,28 +742,31 @@ if __name__ == "__main__":
             post.content = blog_content
         else:
             post.content = formatted_content
-        '''post.terms_names = {
-            'post_tag': tags,
-            'category': categories,
-        }'''
+        '''
+        #post.terms_names = {
+        #    'post_tag': tags,
+        #    'category': categories,
+        #}
          # Lấy ảnh
-        image_url = get_image_url(main_keyword)
-        image_data = requests.get(image_url).content if image_url else None
+        
+        #image_url = get_image_url(main_keyword)
+        #image_data = requests.get(image_url).content if image_url else None
 
         
         # Đăng ảnh 
-        if image_data:
-            image_name = f"{main_keyword.replace(' ', '_')}.jpg"
-            data = {
-                'name': image_name,
-                'type': 'image/jpeg',
-                'bits': xmlrpc.client.Binary(image_data),
-                'overwrite': True,
-            }
-            response = wp_client.call(UploadFile(data))
-            post.thumbnail = response['id']
+        #if image_data:
+        #    image_name = f"{main_keyword.replace(' ', '_')}.jpg"
+        #    data = {
+        #        'name': image_name,
+        #        'type': 'image/jpeg',
+        #        'bits': xmlrpc.client.Binary(image_data),
+        #        'overwrite': True,
+        #    }
+        #    response = wp_client.call(UploadFile(data))
+        #    post.thumbnail = response['id']
+        
 
-        post.post_status = 'publish'
-        post_id = wp_client.call(NewPost(post))
-    else:
-        print("No SEO analytics!")
+        #post.post_status = 'publish'
+        #post_id = wp_client.call(NewPost(post))
+    #else:
+    #    print("No SEO analytics!")
