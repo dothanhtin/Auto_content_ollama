@@ -10,6 +10,13 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from huggingface_hub import InferenceClient
+import cloudinary
+import cloudinary.uploader
+import io
+import os
+import datetime
+import redis
+import json
 
 
 app = FastAPI()
@@ -23,15 +30,137 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 # OPENROUTER_API_KEY = "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"  # Deepseekfree_V3_apikey
 OPENROUTER_API_KEY = "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"  # Google flash thinking apikey
 
+# Cấu hình Redis với mật khẩu
+REDIS_HOST = "redis-19730.c82.us-east-1-2.ec2.redns.redis-cloud.com"  # Đổi thành địa chỉ Redis nếu cần
+REDIS_PORT = 19730
+REDIS_PASSWORD = "HHVwCTyETeYR7UVeidXNoavEWRiWjcYN"  # Nhập mật khẩu Redis của bạn
+TOKEN_KEY = "wordpress_token"
+
+# Kết nối Redis với mật khẩu
+redis_client = redis.Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,  # Thêm mật khẩu
+    db=0,
+    decode_responses=True
+)
+
 
 # Tùy chọn sử dụng API (True = OpenRouter, False = Ollama Local)
 USE_OPENROUTER_API = True
 
 # Cấu hình Wordpress để tự đăng bài
+wp_domain_url = "https://niceplanet.xyz"
 wp_url = "https://niceplanet.xyz/xmlrpc.php"
 wp_username = "tindtadmin"
 wp_password = "Ss123456789@"
 wp_client = Client(wp_url, wp_username, wp_password)
+
+# Cấu hình Cloudinary
+cloudinary.config(
+    cloud_name="kittykittenewordpress",
+    api_key="484342665732471",
+    api_secret="hC4dZwbrl5-k-V8biHf1oa3k974"
+)
+
+# Hàm tạo ảnh, upload lên Cloudinary, cập nhật Featured Image trong WordPress
+def generate_and_upload_image(prompt, model, post_id, wordpress_url, wordpress_token):
+    try:
+        # Khởi tạo Hugging Face AI client
+        client = InferenceClient(
+            provider="fal-ai",
+            api_key="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"
+        )
+
+        # Gọi API tạo ảnh từ văn bản
+        image = client.text_to_image(prompt, model=model)
+
+        # Lưu ảnh tạm vào file
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_image_path = f"generated_image_{timestamp}.jpg"
+        image.save(temp_image_path, format="JPEG")
+
+        # Upload ảnh lên Cloudinary
+        upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
+
+        # Lấy URL của ảnh sau khi upload
+        image_url = upload_result.get("secure_url")
+        print(f"✅ Image uploaded: {image_url}")
+
+        # Cập nhật Featured Image trong WordPress qua FIFU API
+        wordpress_api_url = f"{wordpress_url}/wp-json/fifu/v2/image"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {wordpress_token}"
+        }
+        data = {"id": post_id, "src": image_url}
+
+        response = requests.post(wordpress_api_url, json=data, headers=headers)
+
+        if response.status_code == 200:
+            print("✅ Featured Image updated successfully!")
+        else:
+            print("❌ Failed to update Featured Image:", response.text)
+
+        # Xóa file tạm sau khi hoàn tất
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            print("🗑️ Temporary file deleted.")
+
+        return image_url
+
+    except Exception as e:
+        print("❌ Error:", str(e))
+        return None
+
+
+# Hàm lấy token từ WordPress
+def get_wordpress_token(username, password):
+    url = "https://niceplanet.xyz/wp-json/jwt-auth/v1/token"
+    headers = {"Content-Type": "application/json"}
+    data = {"username": username, "password": password}
+
+    response = requests.post(url, json=data, headers=headers)
+
+    if response.status_code == 200 and "token" in response.json():
+        token = response.json().get("token")
+        print("✅ Token retrieved successfully!")
+
+        # Lưu token vào Redis với thời gian hết hạn 1 giờ
+        redis_client.setex(TOKEN_KEY, 3600, token)
+        return token
+
+    print("❌ Failed to get token:", response.text)
+    return None
+
+# Hàm kiểm tra token có hợp lệ không
+def is_token_valid(token):
+    url = "https://niceplanet.xyz/wp-json/jwt-auth/v1/token/validate"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = requests.post(url, headers=headers)
+
+    if response.status_code == 200:
+        result = response.json()
+        return result.get("success", False)
+    
+    return False
+
+# Hàm lấy token hợp lệ từ Redis hoặc làm mới nếu hết hạn
+def get_valid_token(username, password):
+    token = redis_client.get(TOKEN_KEY)
+
+    if token:
+        print("🔍 Checking token validity...")
+        if is_token_valid(token):
+            print("✅ Token is valid.")
+            return token
+        else:
+            print("❌ Token is invalid or expired. Refreshing...")
+
+    # Lấy token mới nếu token cũ hết hạn
+    return get_wordpress_token(username, password)
+
 
 # Cấu hình Youtube API
 youtube_api_key = "AIzaSyC9TRScaHRzBKbuRjyeyjSZceDxWLhnvX8"
@@ -627,9 +756,17 @@ def format_content(content):
     formatted_content = "\n".join(processed_lines).strip()
     return formatted_content
 
+@app.get("/status")
+def status():
+    return {"status": "API is running"}
+
+@app.get("/test")
+def test_api():
+    return {"message": "This is a test response!"}
+
 
 # API thực hiện toàn bộ quy trình SEO
-@app.post("/seo_pipeline")
+@app.post("/write_seo_content")
 def seo_pipeline(request: KeywordRequest):
     keyword = request.keyword.strip()
     if not keyword:
@@ -672,25 +809,24 @@ def seo_pipeline(request: KeywordRequest):
         'post_tag': tags,
         'category': categories,
     }'''
-    # Lấy ảnh
-    '''image_url = get_image_url(main_keyword)
-    image_data = requests.get(image_url).content if image_url else None
 
-        
-    # Đăng ảnh 
-    if image_data:
-        image_name = f"{main_keyword.replace(' ', '_')}.jpg"
-        data = {
-            'name': image_name,
-            'type': 'image/jpeg',
-            'bits': xmlrpc.client.Binary(image_data),
-            'overwrite': True,
-        }
-        response = wp_client.call(UploadFile(data))
-        post.thumbnail = response['id']'''
-
-    post.post_status = 'publish'
+    #post.post_status = 'publish'
+    post.post_status = 'draft'
     post_id = wp_client.call(NewPost(post))
+
+    # Đăng ảnh 
+
+    wp_token = get_valid_token(wp_username,wp_password);
+
+    image_url = generate_and_upload_image(
+        prompt=formatted_title,
+        model="stabilityai/stable-diffusion-3.5-large",
+        post_id=post_id,  # ID bài viết WordPress
+        wordpress_url=wp_domain_url,
+        wordpress_token=wp_token
+    )
+
+    print("🔗 Final Image URL:", image_url)
     
     return {
         "keyword": keyword,
@@ -699,75 +835,3 @@ def seo_pipeline(request: KeywordRequest):
         "optimized_outline": optimized_outline,
         "content": content
     }
-
-
-# Quy trình thực hiện run console
-'''
-if __name__ == "__main__":
-    # Từ khóa chính
-    main_keyword = input("Nhập từ khóa chính (bấm Enter để dùng mặc định: 'volvo cars electric hybrid'): ").strip()
-    if not main_keyword:
-        main_keyword = "volvo cars electric hybrid"
-
-    print(f"Từ khóa chính: {main_keyword}")
-
-    # Bước 0: Xác định vai trò SEO analytics cho AI
-    confirm = confirm_seo_analytics()
-
-    if("YES" in confirm):
-        # Bước 1: Phân tích và tạo outline
-        outline = create_seo_content_outline(main_keyword)
-
-        # Bước 2: Tìm từ khóa phụ, nsi, npl keywords
-        secondary_keywords = find_secondary_keywords(main_keyword)
-
-        # Bước 3: Tối ưu outline
-        optimized_outline = optimize_outline(outline, main_keyword)
-        print("\nOptimized Outline:\n", optimized_outline["optimized_outline"])
-
-        # Bước 4: Viết nội dung
-        content = write_content(optimized_outline["optimized_outline"], main_keyword,secondary_keywords["concatenated_secondary_keywords"],secondary_keywords["concatenated_nlp_lsi_keywords"])
-        print("\nContent:\n", content)
-
-        # Đăng bài lên wordpress
-        post = WordPressPost()
-        formatted_title  = format_title(optimized_outline["title"])
-        post.title = formatted_title
-        formatted_content = format_content(content)
-
-        # Thêm video vào đầu bài viết
-        video_id = get_youtube_video_id(main_keyword, youtube_api_key)
-        if video_id:
-            youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
-            blog_content = f"{youtube_embed}\n\n{formatted_content}"
-            post.content = blog_content
-        else:
-            post.content = formatted_content
-        '''
-        #post.terms_names = {
-        #    'post_tag': tags,
-        #    'category': categories,
-        #}
-         # Lấy ảnh
-        
-        #image_url = get_image_url(main_keyword)
-        #image_data = requests.get(image_url).content if image_url else None
-
-        
-        # Đăng ảnh 
-        #if image_data:
-        #    image_name = f"{main_keyword.replace(' ', '_')}.jpg"
-        #    data = {
-        #        'name': image_name,
-        #        'type': 'image/jpeg',
-        #        'bits': xmlrpc.client.Binary(image_data),
-        #        'overwrite': True,
-        #    }
-        #    response = wp_client.call(UploadFile(data))
-        #    post.thumbnail = response['id']
-        
-
-        #post.post_status = 'publish'
-        #post_id = wp_client.call(NewPost(post))
-    #else:
-    #    print("No SEO analytics!")
