@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+requests
+pydantic
+wordpress_xmlrpc
+googleapiclient
+google_auth_oauthlib
+huggingface_hub
+cloudinary
+io
+os
+datetime
+redis
+json
+re
