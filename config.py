@@ -1,32 +1,36 @@
 # config.py
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 # --- API Configurations ---
-LOCAL_API_URL = "http://localhost:11434/api/generate"
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_API_KEY = "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"
-USE_OPENROUTER_API = True
+LOCAL_API_URL = os.getenv("LOCAL_API_URL")
+OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+USE_OPENROUTER_API = os.getenv("USE_OPENROUTER_API") == "True"
 
 # --- Redis Configuration ---
-REDIS_HOST = "redis-19730.c82.us-east-1-2.ec2.redns.redis-cloud.com"
-REDIS_PORT = 19730
-REDIS_PASSWORD = "HHVwCTyETeYR7UVeidXNoavEWRiWjcYN"
-TOKEN_KEY = "wordpress_token"
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))  # Default là 6379 nếu không có
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+TOKEN_KEY = os.getenv("TOKEN_KEY")
 
 # --- WordPress Configuration ---
-WP_DOMAIN_URL = "https://niceplanet.xyz"
-WP_URL = "https://niceplanet.xyz/xmlrpc.php"
-WP_USERNAME = "tindtadmin"
-WP_PASSWORD = "Ss123456789@"
+WP_DOMAIN_URL = os.getenv("WP_DOMAIN_URL")
+WP_URL = os.getenv("WP_URL")
+WP_USERNAME = os.getenv("WP_USERNAME")
+WP_PASSWORD = os.getenv("WP_PASSWORD")
 
 # --- Cloudinary Configuration ---
-CLOUDINARY_CLOUD_NAME = "kittykittenewordpress"
-CLOUDINARY_API_KEY = "484342665732471"
-CLOUDINARY_API_SECRET = "hC4dZwbrl5-k-V8biHf1oa3k974"
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
 # --- YouTube & Unsplash Configuration ---
-YOUTUBE_API_KEY = "AIzaSyC9TRScaHRzBKbuRjyeyjSZceDxWLhnvX8"
-IMAGE_API_KEY = "WCHwX4o62UMcUKL24mc-zbWr3EFgzkufKm5U3pf0OwY"
-IMAGE_BASE_URL = "https://api.unsplash.com/search/photos"
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+UNSPLASH_API_KEY = os.getenv("UNSPLASH_API_KEY")
+IMAGE_API_KEY = os.getenv("IMAGE_API_KEY")
+IMAGE_BASE_URL = os.getenv("IMAGE_BASE_URL")
 
 # --- HuggingFace API ---
-HF_API_KEY = "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"
+HF_API_KEY = os.getenv("HF_API_KEY")
