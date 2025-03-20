@@ -2,7 +2,7 @@ fastapi
 uvicorn
 requests
 pydantic
-wordpress_xmlrpc
+python-wordpress-xmlrpc
 googleapiclient
 google_auth_oauthlib
 huggingface_hub
