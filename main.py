@@ -19,8 +19,20 @@ import redis
 import json
 import re
 import config
+from pydantic import BaseModel
+from auth import Auth
+
+MONGO_CONN = os.getenv("MONGO_CONN", "mongodb://localhost:27017")
+DB_NAME = os.getenv("DB_NAME", "FacebookTool")
+
+auth = Auth(MONGO_CONN, DB_NAME)
 
 app = FastAPI()
+
+# Model cho login request
+class LoginModel(BaseModel):
+    username: str
+    password: str
 
 class KeywordRequest(BaseModel):
     keyword: str
@@ -543,6 +555,22 @@ class SEOContentPipeline:
 # -------------------------
 # Các API endpoint
 # -------------------------
+
+@app.post("/login")
+async def login(login: LoginModel):
+    if not login.username or not login.password:
+        raise HTTPException(status_code=400, detail="Username and Password must not be empty!")
+    
+    if not await auth.valid(login.username, login.password):
+        raise HTTPException(status_code=401, detail="User is invalid!!!")
+    
+    user = await auth.get_by_username_email(login.username)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    token = auth.generate_token(user)
+    return {"Token": token}
+
 @app.get("/status")
 def status():
     return {"status": "API is running"}
