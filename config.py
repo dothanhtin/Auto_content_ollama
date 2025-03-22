@@ -34,3 +34,7 @@ IMAGE_BASE_URL = os.getenv("IMAGE_BASE_URL")
 
 # --- HuggingFace API ---
 HF_API_KEY = os.getenv("HF_API_KEY")
+
+LOGIN_URL = os.getenv("LOGIN_URL")
+VERIFY_URL=os.getenv("VERIFY_URL")
+CACHE_EXPIRY=os.getenv("CACHE_EXPIRY")

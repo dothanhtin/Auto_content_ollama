@@ -9,5 +9,3 @@ huggingface_hub
 cloudinary
 redis
 python-dotenv
-motor
-jwt

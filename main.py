@@ -1,5 +1,5 @@
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException
 from pydantic import BaseModel
 from wordpress_xmlrpc import Client, WordPressPost
 from wordpress_xmlrpc.methods.posts import NewPost
@@ -19,26 +19,21 @@ import redis
 import json
 import re
 import config
-from pydantic import BaseModel
-from auth import Auth
-
-MONGO_CONN = os.getenv("MONGO_CONN", "mongodb://localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "FacebookTool")
-
-auth = Auth(MONGO_CONN, DB_NAME)
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
-
-# Model cho login request
-class LoginModel(BaseModel):
-    username: str
-    password: str
 
 class KeywordRequest(BaseModel):
     keyword: str
 
 # -------------------------
 # Cấu hình các API & Service
+# Cấu hình API
+LOGIN_URL = config.LOGIN_URL
+VERIFY_URL = config.VERIFY_URL
+CACHE_EXPIRY = int(config.CACHE_EXPIRY)  # Cache token trong 1 giờ
+
+
 # -------------------------
 # API Ollama & OpenRouter
 LOCAL_API_URL = config.LOCAL_API_URL
@@ -555,21 +550,74 @@ class SEOContentPipeline:
 # -------------------------
 # Các API endpoint
 # -------------------------
+async def get_token(login_payload: dict):
+    """Lấy token từ Redis hoặc đăng nhập lại nếu hết hạn."""
+    token = redis_client.get("auth_token")
+    if token:
+        return token
 
-@app.post("/login")
-async def login(login: LoginModel):
-    if not login.username or not login.password:
-        raise HTTPException(status_code=400, detail="Username and Password must not be empty!")
-    
-    if not await auth.valid(login.username, login.password):
-        raise HTTPException(status_code=401, detail="User is invalid!!!")
-    
-    user = await auth.get_by_username_email(login.username)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    token = auth.generate_token(user)
-    return {"Token": token}
+    # Gọi API để lấy token mới
+    try:
+        response = requests.post(LOGIN_URL, json=login_payload, timeout=5)
+        if response.status_code == 200:
+            token = response.json().get("token")
+            if token:
+                redis_client.setex("auth_token", CACHE_EXPIRY, token)  # Lưu token vào Redis
+                return token
+    except requests.RequestException:
+        pass
+    return None
+
+async def verify_token(token: str) -> bool:
+    """Xác minh token với API, nếu không hợp lệ thì đăng nhập lại."""
+    if not token:
+        return False
+
+    # Kiểm tra cache trước
+    cached_result = redis_client.get(f"token:{token}")
+    if cached_result == "1":
+        return True
+
+    # Gửi request xác minh token
+    payload = {"token": token}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        response = requests.post(VERIFY_URL, json=payload, headers=headers, timeout=5)
+        if response.status_code == 200 and response.json() == 1:
+            redis_client.setex(f"token:{token}", CACHE_EXPIRY, "1")  # Lưu cache
+            return True
+    except requests.RequestException:
+        pass
+
+    return False
+
+async def auth_middleware(request: Request, call_next):
+    """Middleware kiểm tra token trước khi xử lý request."""
+    if request.url.path in ["/get-token"]:  # Bỏ qua kiểm tra token với API login
+        return await call_next(request)
+
+    token = redis_client.get("auth_token")
+    if not await verify_token(token):
+        return JSONResponse(status_code=401, content={"error": "Invalid token"})
+
+    response = await call_next(request)
+    return response
+
+@app.middleware("http")
+async def add_auth_middleware(request: requests, call_next):
+    return await auth_middleware(request, call_next)
+
+@app.post("/get-token")
+async def generate_token(login_payload: dict):
+    """API để lấy token với thông tin đăng nhập động."""
+    if not login_payload or "username" not in login_payload or "password" not in login_payload:
+        raise HTTPException(status_code=400, detail="Missing username or password")
+
+    token = await get_token(login_payload)
+    if token:
+        return {"token": token}
+    raise HTTPException(status_code=401, detail="Failed to authenticate")
+
 
 @app.get("/status")
 def status():
