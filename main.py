@@ -19,9 +19,11 @@ import redis
 import json
 import re
 import config
-from fastapi.responses import JSONResponse
+import httpx
+from fastapi.routing import APIRoute
+import auth
 
-app = FastAPI()
+app = FastAPI()    
 
 class KeywordRequest(BaseModel):
     keyword: str
@@ -568,45 +570,6 @@ async def get_token(login_payload: dict):
         pass
     return None
 
-async def verify_token(token: str) -> bool:
-    """Xác minh token với API, nếu không hợp lệ thì đăng nhập lại."""
-    if not token:
-        return False
-
-    # Kiểm tra cache trước
-    cached_result = redis_client.get(f"token:{token}")
-    if cached_result == "1":
-        return True
-
-    # Gửi request xác minh token
-    payload = {"token": token}
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    try:
-        response = requests.post(VERIFY_URL, json=payload, headers=headers, timeout=5)
-        if response.status_code == 200 and response.json() == 1:
-            redis_client.setex(f"token:{token}", CACHE_EXPIRY, "1")  # Lưu cache
-            return True
-    except requests.RequestException:
-        pass
-
-    return False
-
-async def auth_middleware(request: Request, call_next):
-    """Middleware kiểm tra token trước khi xử lý request."""
-    if request.url.path in ["/get-token"]:  # Bỏ qua kiểm tra token với API login
-        return await call_next(request)
-
-    token = redis_client.get("auth_token")
-    if not await verify_token(token):
-        return JSONResponse(status_code=401, content={"error": "Invalid token"})
-
-    response = await call_next(request)
-    return response
-
-@app.middleware("http")
-async def add_auth_middleware(request: requests, call_next):
-    return await auth_middleware(request, call_next)
-
 @app.post("/get-token")
 async def generate_token(login_payload: dict):
     """API để lấy token với thông tin đăng nhập động."""
@@ -619,7 +582,7 @@ async def generate_token(login_payload: dict):
     raise HTTPException(status_code=401, detail="Failed to authenticate")
 
 
-@app.get("/status")
+@app.get("/status",dependencies=[Depends(auth.token_auth)])
 def status():
     return {"status": "API is running"}
 
