@@ -22,13 +22,6 @@ cloudinary.config(
     api_secret=config.CLOUDINARY_API_SECRET
 )
 
-# Cấu hình Youtube và Unsplash
-youtube_api_key = config.YOUTUBE_API_KEY
-image_api_key = config.IMAGE_API_KEY
-image_base_url = config.IMAGE_BASE_URL
-
-HF_API_KEY = config.HF_API_KEY
-
 def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_token):
     try:
         client = InferenceClient(

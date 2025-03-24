@@ -11,3 +11,5 @@ redis
 python-dotenv
 pandas
 motor
+httpx
+python-multipart

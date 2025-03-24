@@ -1,5 +1,5 @@
 import requests
-from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile as FastAPIUploadFile, File
 from pydantic import BaseModel
 from wordpress_xmlrpc import Client, WordPressPost
 from wordpress_xmlrpc.methods.posts import NewPost
@@ -15,18 +15,18 @@ import auth.auth as auth
 import pandas as pd
 from typing import List
 from database.databaseconnection import db
-from functions.helpers import helpers_func
+import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
 
 app = FastAPI()    
 
 class KeywordRequest(BaseModel):
     keyword: str
-    wordpressUrl: str
+    siteId: str
        
 class ListKeywordRequest(BaseModel):
     keywords: List[str]
-    wordpressUrl : str
+    siteId : str
 
 # -------------------------
 # Cấu hình các API & Service
@@ -58,25 +58,25 @@ class SEOContentPipeline:
     
     def run_pipeline(self):
         # Bước 0: Xác nhận vai trò SEO Analytics
-        confirm = helpersFunction.confirm_seo_analytics()
+        confirm = helpers.confirm_seo_analytics()
         if "YES" not in confirm:
             raise Exception("AI did not confirm SEO analytics role")
         self.context["confirm"] = confirm
 
         # Bước 1: Tạo outline từ nội dung SEO
-        outline = helpersFunction.create_seo_content_outline(self.keyword)
+        outline = helpers.create_seo_content_outline(self.keyword)
         self.context["outline"] = outline
 
         # Bước 2: Tìm từ khóa phụ (Secondary, NLP, LSI)
-        secondary_keywords = helpersFunction.find_secondary_keywords(self.keyword)
+        secondary_keywords = helpers.find_secondary_keywords(self.keyword)
         self.context["secondary_keywords"] = secondary_keywords
 
         # Bước 3: Tối ưu outline dựa trên từ khóa chính
-        optimized_outline = helpersFunction.optimize_outline(outline, self.keyword)
+        optimized_outline = helpers.optimize_outline(outline, self.keyword)
         self.context["optimized_outline"] = optimized_outline
 
         # Bước 4: Viết nội dung dựa trên outline tối ưu và từ khóa phụ
-        content = helpersFunction.write_content(
+        content = helpers.write_content(
             optimized_outline.get("optimized_outline", ""),
             self.keyword,
             secondary_keywords.get("concatenated_secondary_keywords", ""),
@@ -86,11 +86,11 @@ class SEOContentPipeline:
 
         # Bước 5: Đăng bài lên WordPress
         post = WordPressPost()
-        formatted_title = helpersFunction.format_title(optimized_outline.get("title", self.keyword.title()))
+        formatted_title = helpers.format_title(optimized_outline.get("title", self.keyword.title()))
         post.title = formatted_title
-        formatted_content = helpersFunction.format_content(content)
+        formatted_content = helpers.format_content(content)
         # Thêm video YouTube nếu có
-        video_id = helpersFunction.get_youtube_video_id(self.keyword, config.YOUTUBE_API_KEY)
+        video_id = helpers.get_youtube_video_id(self.keyword, config.YOUTUBE_API_KEY)
         if video_id:
             youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>'
             blog_content = f"{youtube_embed}\n\n{formatted_content}"
@@ -114,8 +114,8 @@ class SEOContentPipeline:
         self.context["post_id"] = post_id
 
         # Bước 6: Tạo ảnh, upload lên Cloudinary và cập nhật Featured Image trong WordPress
-        wp_token = helpersFunction.get_valid_token(wp_username, wp_password)
-        image_url = helpersFunction.generate_and_upload_image(
+        wp_token = helpers.get_valid_token(wp_username, wp_password)
+        image_url = helpers.generate_and_upload_image(
             prompt=formatted_title,
             model="stabilityai/stable-diffusion-3.5-large",
             post_id=post_id,
@@ -171,13 +171,13 @@ async def generate_token(login_payload: dict):
 def status():
     return {"status": "API is running"}
 
-@app.get("/test")
+@app.get("/test",dependencies=[Depends(auth.token_auth)])
 def test_api():
     return {"message": "This is a test response!"}
 
-@app.post("/write_seo_content")
+@app.post("/write_seo_content",dependencies=[Depends(auth.token_auth)])
 def seo_pipeline(request: KeywordRequest):
-    pipeline = SEOContentPipeline(request.keyword)
+    pipeline = SEOContentPipeline(request.keyword,request.siteId)
     try:
         result = pipeline.run_pipeline()
         return result
@@ -185,11 +185,11 @@ def seo_pipeline(request: KeywordRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/write_seo_content_bulk")
+@app.post("/write_seo_content_bulk",dependencies=[Depends(auth.token_auth)])
 def seo_pipeline_bulk(request: ListKeywordRequest):
     results = []
     for keyword in request.keywords:
-        pipeline = SEOContentPipeline(keyword)
+        pipeline = SEOContentPipeline(keyword,request.siteId)
         try:
             result = pipeline.run_pipeline()
             results.append({keyword: result})
@@ -198,8 +198,11 @@ def seo_pipeline_bulk(request: ListKeywordRequest):
     
     return results
 
-@app.post("/import_and_write_seo_content")
-def import_and_write_seo_content(file: UploadFile = File(...),):
+@app.post("/import_and_write_seo_content",dependencies=[Depends(auth.token_auth)])
+def import_and_write_seo_content(
+    file: FastAPIUploadFile = File(...),
+    siteId: str = 1
+):
     try:
         df = pd.read_excel(file.file)
         if "Keyword" not in df.columns:
@@ -209,7 +212,7 @@ def import_and_write_seo_content(file: UploadFile = File(...),):
         results = []
         
         for keyword in keywords:
-            pipeline = SEOContentPipeline(keyword)
+            pipeline = SEOContentPipeline(keyword, siteId)  # Truyền thêm URL vào pipeline
             try:
                 result = pipeline.run_pipeline()
                 results.append({keyword: result})
@@ -221,7 +224,7 @@ def import_and_write_seo_content(file: UploadFile = File(...),):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/sites")
+@app.get("/sites",dependencies=[Depends(auth.token_auth)])
 async def get_sites():
     try:
         sites = []
