@@ -14,7 +14,7 @@ from fastapi.routing import APIRoute
 import auth.auth as auth
 import pandas as pd
 from typing import List
-from database.databaseconnection import db
+import database.databaseconnection as db
 import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
 
