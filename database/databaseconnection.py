@@ -2,7 +2,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 # Kết nối MongoDB
 MONGO_URI = "mongodb+srv://admin:PMP6nxCJ2RsYTyYm@fb-datamanagement-01.bml5n2k.mongodb.net/?retryWrites=true&w=majority"
-DB_NAME = "FacebookTool"
+DB_NAME = "AutoContent"
 COLLECTION_NAME = "SiteManageCollection"
 
 mongoClient = AsyncIOMotorClient(MONGO_URI)
