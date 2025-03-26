@@ -13,3 +13,4 @@ pandas
 motor
 httpx
 python-multipart
+starlette

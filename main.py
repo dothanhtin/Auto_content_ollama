@@ -17,8 +17,17 @@ from typing import List
 import database.databaseconnection as db
 import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()    
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Hoặc cụ thể: ["http://127.0.0.1:5000"]
+    allow_credentials=True,
+    allow_methods=["*"],  # Cho phép tất cả các phương thức (GET, POST, ...)
+    allow_headers=["*"],  # Cho phép tất cả các header
+)
 
 class KeywordRequest(BaseModel):
     keyword: str
