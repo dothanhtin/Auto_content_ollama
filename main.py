@@ -18,6 +18,7 @@ import database.databaseconnection as db
 import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 
 app = FastAPI()
 
@@ -170,7 +171,8 @@ async def generate_token(login_payload: dict):
     if not login_payload or "username" not in login_payload or "password" not in login_payload:
         raise HTTPException(status_code=400, detail="Missing username or password")
 
-    token = await get_token(login_payload)
+    #token = await get_token(login_payload)
+    token = await asyncio.wait_for(get_token(login_payload), timeout=60)
     if token:
         return {"token": token}
     raise HTTPException(status_code=401, detail="Failed to authenticate")
