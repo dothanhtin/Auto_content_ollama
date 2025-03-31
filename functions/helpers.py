@@ -87,7 +87,7 @@ def get_valid_token(wp_domain_url,username, password):
     token = redis_client.get(config.TOKEN_KEY)
     if token:
         print("🔍 Checking token validity...")
-        if is_token_valid(token):
+        if is_token_valid(wp_domain_url,token):
             print("✅ Token is valid.")
             return token
         else:
