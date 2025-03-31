@@ -114,12 +114,12 @@ class SEOContentPipeline:
             raise Exception("Site not found")
         
         wp_domain_url = siteResult["url"]
-        wp_url = wp_domain_url + wp_url
+        url = wp_domain_url + wp_url
         wp_username = siteResult["username"]
         wp_password = siteResult["password"]
         
 
-        wp_client = Client(wp_url, wp_username, wp_password)
+        wp_client = Client(url, wp_username, wp_password)
         post_id = wp_client.call(NewPost(post))
         self.context["post_id"] = post_id
 
