@@ -83,7 +83,7 @@ def is_token_valid(wp_domain_url,token):
         return result.get("success", False)
     return False
 
-def get_valid_token(username, password):
+def get_valid_token(wp_domain_url,username, password):
     token = redis_client.get(config.TOKEN_KEY)
     if token:
         print("🔍 Checking token validity...")
@@ -92,7 +92,7 @@ def get_valid_token(username, password):
             return token
         else:
             print("❌ Token is invalid or expired. Refreshing...")
-    return get_wordpress_token(username, password)
+    return get_wordpress_token(wp_domain_url,username, password)
 
 def get_image_url(query):
     headers = {"Authorization": f"Client-ID {config.IMAGE_API_KEY}"}
