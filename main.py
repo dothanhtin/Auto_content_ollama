@@ -19,8 +19,10 @@ import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+import logging
 
 app = FastAPI()
+logger = logging.getLogger("uvicorn")
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,14 +119,17 @@ class SEOContentPipeline:
         url = wp_domain_url + wp_url
         wp_username = siteResult["username"]
         wp_password = siteResult["password"]
-        
+
+        #Ghi log chỗ này
+        logger.info(f"wp_domain_url: {wp_domain_url}, wp_url: {wp_url}, full_url: {url}")
+        logger.info(f"wp_username: {wp_username}, wp_password: {wp_password}")
 
         wp_client = Client(url, wp_username, wp_password)
         post_id = wp_client.call(NewPost(post))
         self.context["post_id"] = post_id
 
         # Bước 6: Tạo ảnh, upload lên Cloudinary và cập nhật Featured Image trong WordPress
-        wp_token = helpers.get_valid_token(wp_username, wp_password)
+        wp_token = helpers.get_valid_token(wp_domain_url,wp_username, wp_password)
         image_url = helpers.generate_and_upload_image(
             prompt=formatted_title,
             model="stabilityai/stable-diffusion-3.5-large",
