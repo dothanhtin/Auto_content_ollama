@@ -10,14 +10,15 @@ db = mongoClient[DB_NAME]
 collection = db[COLLECTION_NAME]
 
 
-def get_site_by_id(id: int):
+async def get_site_by_id(id):
     try:
-        site = collection.find_one({"id": id})  # Tìm theo trường id trong document
-
+        # Kiểm tra và chuyển đổi kiểu dữ liệu nếu cần
+        site_id = int(id) if isinstance(id, str) and id.isdigit() else id
+        site = await collection.find_one({"id": site_id})
         if site:
-            site["_id"] = str(site["_id"])  # Chuyển ObjectId về string (nếu cần)
+            site["_id"] = str(site["_id"])
             return site
         else:
-            return None  # Không tìm thấy
+            return None
     except Exception as e:
-        return {"error": str(e)}  # Xử lý lỗi
+        return {"error": str(e)}

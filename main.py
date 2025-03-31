@@ -109,7 +109,7 @@ class SEOContentPipeline:
             post.content = formatted_content
         post.post_status = 'draft'
 
-        siteResult = db.get_site_by_id(self.siteId)
+        siteResult = get_site_by_id_sync(self.siteId)
         if not siteResult:
             raise Exception("Site not found")
         
@@ -164,6 +164,17 @@ async def get_token(login_payload: dict):
     except requests.RequestException:
         pass
     return None
+
+def get_site_by_id_sync(id):
+    # Lấy event loop hiện tại hoặc tạo mới
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # Chạy hàm async và lấy kết quả
+    return loop.run_until_complete(db.get_site_by_id(id))
 
 @app.post("/get-token")
 async def generate_token(login_payload: dict):
