@@ -13,8 +13,7 @@ collection = db[COLLECTION_NAME]
 
 async def get_site_by_id(id: int):
     try:
-        siteId = id
-        site = await collection.find_one({"id": siteId})  # Sử dụng await
+        site = await collection.find_one({"id": id})  # Sử dụng await
         if site:
             site["_id"] = str(site["_id"])
             return site

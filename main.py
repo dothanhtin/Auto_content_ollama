@@ -179,7 +179,8 @@ def get_site_by_id_sync(id):
         asyncio.set_event_loop(loop)
     
     # Chạy hàm async và lấy kết quả
-    return loop.run_until_complete(db.get_site_by_id(id))
+    siteId = int(id)
+    return loop.run_until_complete(db.get_site_by_id(siteId))
 
 @app.post("/get-token")
 async def generate_token(login_payload: dict):
