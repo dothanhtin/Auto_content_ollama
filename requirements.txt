@@ -14,3 +14,4 @@ motor
 httpx
 python-multipart
 starlette
+Pillow

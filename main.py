@@ -19,8 +19,10 @@ import functions.helpers  as helpers
 from thirdparty.redisconnection import redis_client
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+import logging
 
 app = FastAPI()
+logger = logging.getLogger("uvicorn")
 
 app.add_middleware(
     CORSMiddleware,
@@ -109,28 +111,30 @@ class SEOContentPipeline:
             post.content = formatted_content
         post.post_status = 'draft'
 
-        siteResult = asyncio.run(db.get_site_by_id(self.siteId))
-        #siteResult = await db.get_site_by_id(self.siteId)
+        siteResult = get_site_by_id_sync(self.siteId)
         if not siteResult:
             raise Exception("Site not found")
         
         wp_domain_url = siteResult["url"]
-        wp_url = wp_domain_url + wp_url
+        url = wp_domain_url + wp_url
         wp_username = siteResult["username"]
         wp_password = siteResult["password"]
-        
 
-        wp_client = Client(wp_url, wp_username, wp_password)
+        #Ghi log chỗ này
+        # logger.info(f"wp_domain_url: {wp_domain_url}, wp_url: {wp_url}, full_url: {url}")
+        # logger.info(f"wp_username: {wp_username}, wp_password: {wp_password}")
+
+        wp_client = Client(url, wp_username, wp_password)
         post_id = wp_client.call(NewPost(post))
         self.context["post_id"] = post_id
 
         # Bước 6: Tạo ảnh, upload lên Cloudinary và cập nhật Featured Image trong WordPress
-        wp_token = helpers.get_valid_token(wp_username, wp_password)
+        wp_token = helpers.get_valid_token(wp_domain_url,wp_username, wp_password)
         image_url = helpers.generate_and_upload_image(
             prompt=formatted_title,
             model="stabilityai/stable-diffusion-3.5-large",
             post_id=post_id,
-            wordpress_url=wp_domain_url,
+            wp_domain_url=wp_domain_url,
             wordpress_token=wp_token
         )
         self.context["image_url"] = image_url
@@ -165,6 +169,17 @@ async def get_token(login_payload: dict):
     except requests.RequestException:
         pass
     return None
+
+def get_site_by_id_sync(id):
+    # Lấy event loop hiện tại hoặc tạo mới
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # Chạy hàm async và lấy kết quả
+    return loop.run_until_complete(db.get_site_by_id(id))
 
 @app.post("/get-token")
 async def generate_token(login_payload: dict):
