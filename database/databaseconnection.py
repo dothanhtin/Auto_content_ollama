@@ -1,4 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
+import asyncio
 
 # Kết nối MongoDB
 MONGO_URI = "mongodb+srv://admin:PMP6nxCJ2RsYTyYm@fb-datamanagement-01.bml5n2k.mongodb.net/?retryWrites=true&w=majority"
@@ -10,14 +11,14 @@ db = mongoClient[DB_NAME]
 collection = db[COLLECTION_NAME]
 
 
-def get_site_by_id(id: int):
+async def get_site_by_id(id: int):
     try:
-        site = collection.find_one({"id": id})  # Tìm theo trường id trong document
-
+        siteId = id
+        site = await collection.find_one({"id": siteId})  # Sử dụng await
         if site:
-            site["_id"] = str(site["_id"])  # Chuyển ObjectId về string (nếu cần)
+            site["_id"] = str(site["_id"])
             return site
         else:
-            return None  # Không tìm thấy
+            return None
     except Exception as e:
-        return {"error": str(e)}  # Xử lý lỗi
+        return {"error": str(e)}

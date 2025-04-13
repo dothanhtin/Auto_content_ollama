@@ -109,7 +109,8 @@ class SEOContentPipeline:
             post.content = formatted_content
         post.post_status = 'draft'
 
-        siteResult = db.get_site_by_id(self.siteId)
+        siteResult = asyncio.run(db.get_site_by_id(self.siteId))
+        #siteResult = await db.get_site_by_id(self.siteId)
         if not siteResult:
             raise Exception("Site not found")
         
