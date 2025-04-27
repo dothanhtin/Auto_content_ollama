@@ -132,7 +132,7 @@ class SEOContentPipeline:
         wp_token = helpers.get_valid_token(wp_domain_url,wp_username, wp_password)
         image_url = helpers.generate_and_upload_image(
             prompt=formatted_title,
-            model="stabilityai/stable-diffusion-3.5-large",
+            model=config.IMAGE_MODEL_AI,
             post_id=post_id,
             wp_domain_url=wp_domain_url,
             wordpress_token=wp_token

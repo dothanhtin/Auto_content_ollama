@@ -169,7 +169,7 @@ def call_ai_model(prompt, model="llama3:8b"):
             "Content-Type": "application/json"
         }
         data = {
-            "model": "google/gemini-2.0-flash-thinking-exp:free",
+            "model": config.MODEL_AI,
             "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         }
         api_url = config.OPENROUTER_API_URL
