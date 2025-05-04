@@ -22,21 +22,57 @@ cloudinary.config(
     api_secret=config.CLOUDINARY_API_SECRET
 )
 
+def generate_with_cloudflare(prompt):
+    url = "https://api.cloudflare.com/client/v4/accounts/eb9da718bb875b75af5a984d0cd76fe7/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
+    headers = {
+        "Authorization": f"Bearer {config.CLOUDFLARE_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "prompt": prompt,
+        "num_inference_steps": 2,
+        "guidance_scale": 7.5
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code == 200:
+        # Kết quả là base64, bạn cần giải mã
+        import base64
+        from PIL import Image
+        from io import BytesIO
+
+        output = response.json()
+        b64_image = output.get("result", "")
+        if b64_image:
+            image_data = base64.b64decode(b64_image)
+            return Image.open(BytesIO(image_data))
+        else:
+            raise Exception("No image result in Cloudflare response")
+    else:
+        raise Exception(f"Cloudflare API failed: {response.text}")
+
 def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_token):
     try:
-        client = InferenceClient(
-            provider="fal-ai",
-            api_key= config.HF_API_KEY
-        )
-        image = client.text_to_image(prompt, model=model)
+        try:
+            print("✨ Trying HuggingFace...")
+            client = InferenceClient(
+                provider="fal-ai",
+                api_key=config.HF_API_KEY
+            )
+            image = client.text_to_image(prompt, model=model)
+        except Exception as e:
+            print(f"⚠️ HuggingFace failed: {str(e)}")
+            print("✨ Falling back to Cloudflare...")
+            image = generate_with_cloudflare(prompt)
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_image_path = f"generated_image_{timestamp}.jpg"
         image.save(temp_image_path, format="JPEG")
+
         upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
         image_url = upload_result.get("secure_url")
         print(f"✅ Image uploaded: {image_url}")
 
-        # Cập nhật Featured Image qua API FIFU của WordPress
+        # Cập nhật ảnh đại diện
         wordpress_api_url = f"{wp_domain_url}/wp-json/fifu-api/v1/set-image"
         headers = {
             "Content-Type": "application/json",
@@ -48,10 +84,13 @@ def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_t
             print("✅ Featured Image updated successfully!")
         else:
             print("❌ Failed to update Featured Image:", response.text)
+
         if os.path.exists(temp_image_path):
             os.remove(temp_image_path)
             print("🗑️ Temporary file deleted.")
+
         return image_url
+
     except Exception as e:
         print("❌ Error:", str(e))
         return None
