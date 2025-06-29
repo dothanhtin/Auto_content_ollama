@@ -3,13 +3,16 @@ from thirdparty.redisconnection import redis_client
 import config
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google_auth_oauthlib.flow import InstalledAppFlow
 from huggingface_hub import InferenceClient
 import re
 import datetime
 import os
 import cloudinary
 import cloudinary.uploader
+from PIL import Image
+from io import BytesIO
+import logging
+import time
 
 # -------------------------
 # Các hàm hỗ trợ (helper functions)
@@ -22,7 +25,10 @@ cloudinary.config(
     api_secret=config.CLOUDINARY_API_SECRET
 )
 
-def generate_with_cloudflare(prompt):
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def generate_with_cloudflare(prompt, num_inference_steps=30, guidance_scale=9.0, retries=3):
     url = "https://api.cloudflare.com/client/v4/accounts/eb9da718bb875b75af5a984d0cd76fe7/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {
         "Authorization": f"Bearer {config.CLOUDFLARE_KEY}",
@@ -30,25 +36,50 @@ def generate_with_cloudflare(prompt):
     }
     payload = {
         "prompt": prompt,
-        "num_inference_steps": 2,
-        "guidance_scale": 7.5
+        "num_inference_steps": num_inference_steps,
+        "guidance_scale": guidance_scale
     }
-    response = requests.post(url, json=payload, headers=headers)
-    if response.status_code == 200:
-        # Kết quả là base64, bạn cần giải mã
-        import base64
-        from PIL import Image
-        from io import BytesIO
 
-        output = response.json()
-        b64_image = output.get("result", "")
-        if b64_image:
-            image_data = base64.b64decode(b64_image)
-            return Image.open(BytesIO(image_data))
-        else:
-            raise Exception("No image result in Cloudflare response")
-    else:
-        raise Exception(f"Cloudflare API failed: {response.text}")
+    for attempt in range(retries):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{retries} - Sending request to {url} with prompt: {prompt}")
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response headers: {response.headers}")
+            logger.info(f"Response content type: {response.headers.get('content-type')}")
+            logger.info(f"Response content length: {response.headers.get('content-length')} bytes")
+
+            if response.status_code == 200:
+                if response.headers.get('content-type') == 'image/png':
+                    try:
+                        image = Image.open(BytesIO(response.content))
+                        logger.info("Image generated successfully from binary PNG data")
+                        # Tối ưu kích thước (giảm xuống 800x800 để upload dễ hơn)
+                        image = image.resize((738, 421), Image.Resampling.LANCZOS)
+                        return image
+                    except Exception as e:
+                        logger.error(f"Image processing error: {e}")
+                        raise Exception("Failed to process PNG image")
+                else:
+                    logger.error(f"Unexpected content type: {response.headers.get('content-type')}")
+                    raise Exception("Unexpected response content type")
+            else:
+                logger.error(f"Cloudflare API failed: {response.status_code}, {response.text}")
+                if attempt < retries - 1:
+                    logger.info(f"Retrying due to API failure...")
+                    time.sleep(2)
+                    continue
+                raise Exception(f"Cloudflare API failed: {response.status_code}, {response.text}")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed: {e}")
+            if attempt < retries - 1:
+                logger.info(f"Retrying due to network error...")
+                time.sleep(2)
+                continue
+            raise Exception(f"Network error: {e}")
+
+    raise Exception("Failed to generate image after all retries")
 
 def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_token):
     try:
@@ -201,59 +232,86 @@ def call_local_ollama(prompt, model="llama3:8b"):
         print(f"Request failed: {e}")
         return None
     
-def call_ai_model(prompt, model="llama3:8b"):
-    if config.USE_OPENROUTER_API:
+def call_ai_model(prompt, model="llama3:8b", provider=config.PROVIDER):
+    if provider == "openrouter":
         headers = {
             "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
             "Content-Type": "application/json"
         }
         data = {
-            "model": config.MODEL_AI,
+            "model": config.MODEL_AI,  # ví dụ: "mistralai/mistral-7b-instruct"
             "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         }
         api_url = config.OPENROUTER_API_URL
-    else:
+
+    elif provider == "groq":
+        headers = {
+            "Authorization": f"Bearer {config.GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": config.GROQ_MODEL_AI,  # ví dụ: "llama3-8b-8192" hoặc "llama3-70b-8192"
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        api_url = config.GROQ_API_URL  # thường là https://api.groq.com/openai/v1/chat/completions
+
+    else:  # local fallback
         data = {"model": model, "prompt": prompt, "stream": False}
+        headers = None
         api_url = config.LOCAL_API_URL
+
     try:
-        response = requests.post(api_url, json=data, headers=headers if config.USE_OPENROUTER_API else None)
+        response = requests.post(api_url, json=data, headers=headers)
         if response.status_code == 200:
             response_data = response.json()
-            return response_data.get("response", response_data.get("choices", [{}])[0].get("message", {}).get("content", "No response found"))
+            # Groq/OpenRouter đều dùng OpenAI schema → có 'choices'
+            return response_data.get("choices", [{}])[0].get("message", {}).get("content", "No response found")
         else:
-            print(f"Error: {response.status_code}, {response.text}")
+            print(f"[{provider}] Error: {response.status_code}, {response.text}")
             return None
     except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
+        print(f"[{provider}] Request failed: {e}")
         return None
     
 def confirm_seo_analytics():
     prompt = f"""
-        You are a content strategist specializing in SEO. Your task is to refine content strategy to attract organic traffic, improve search engine rankings, and deeply resonate with the target audience.
-        Please follow these guidelines while analyzing and enhancing the content:
-        ●   Relevance: Ensure all content is directly relevant to the website's core topics, products, or services.
-        ●   Depth & Value: Prioritize in-depth, informative content that genuinely addresses user needs and questions.
-        ●   Search Intent Match: Carefully align the content with what users are actually searching for (e.g., informational articles, product comparisons, how-to guides).
-        ●   Target Audience Understanding: Craft content that speaks directly to the interests, pain points, and language of the ideal customer.
-        ●   Trends & Freshness: Incorporate trending topics or emerging industry news when relevant, while keeping content up-to-date.
-        ●   Semantic Richness: Use a variety of related terms and phrases naturally throughout the content to capture a wider range of search queries.
-        ●   Readability & Engagement: Write in a clear, engaging style that keeps readers on the page.
-        Please present your findings in a structured format, including the following:
-        ●   Content Area: Identify specific pages or sections of content.
-        ●   Current Status: Briefly assess the content's strengths and weaknesses.
-        ●   Suggested Improvements: Provide actionable recommendations for improving relevance, depth, search intent match, audience appeal, etc.
-        ●   SEO Considerations: Highlight opportunities to optimize title tags, meta descriptions, header tags, and internal linking for relevant keywords.
-        ●   Additional Notes: Any further insights on content promotion, link building, or other strategies to boost visibility.
-        Feel free to use any relevant content analysis and SEO tools to aid your assessment. Remember, the goal is to create a content strategy that not only ranks well but truly resonates with readers and drives meaningful engagement.
-        Do you understand these revised instructions? You must response YES or NO. If so, acknowledge and await my next prompt.
+        You are a content strategist specializing in SEO. Your task is to refine content strategy to attract organic traffic, improve search engine rankings, and deeply resonate with the target audience. Follow these guidelines while analyzing and enhancing the content:
+        - Relevance: Ensure all content is directly relevant to the website's core topics, products, or services.
+        - Depth & Value: Prioritize in-depth, informative content that addresses user needs and questions.
+        - Search Intent Match: Align content with user search intent (e.g., informational articles, product comparisons, how-to guides).
+        - Target Audience Understanding: Craft content for the interests, pain points, and language of the ideal customer (e.g., pet owners or EV enthusiasts in the USA).
+        - Trends & Freshness: Incorporate trending topics or industry news when relevant, keeping content up-to-date.
+        - Semantic Richness: Use related terms and phrases naturally to capture a wider range of search queries.
+        - Readability & Engagement: Write in simple English, targeting Grade 8 readability, avoiding passive voice and complex words (e.g., use 'use' instead of 'utilize'). Ensure an engaging style to keep readers on the page.
+        - E-E-A-T: Include stats or examples from credible sources (e.g., IEA or Electrek for EVs, PetMD for pets). Add real-world examples (e.g., 'As a pet owner, I tested...'). Include an author bio (e.g., 'Written by [Name], an enthusiast in [topic]') to enhance trustworthiness.
+        Present your findings in a structured format:
+        - Content Area: Identify specific pages or sections.
+        - Current Status: Assess strengths and weaknesses.
+        - Suggested Improvements: Provide actionable recommendations for relevance, depth, search intent, and audience appeal.
+        - SEO Considerations: Optimize title tags (55-60 characters), meta descriptions (150-160 characters), header tags, and internal links (2-3 per article) for relevant keywords.
+        - Additional Notes: Include insights on content promotion, link building, or strategies to boost visibility.
+        Do you understand these instructions? Respond YES or NO and await my next prompt.
     """
     return call_ai_model(prompt)
 
 def analyze_content(keyword):
     prompt = f"""
-    You are a content strategist specializing in SEO. Create an outline for a blog targeting the keyword '{keyword}'. 
-    Include an optimized title, meta description, H2 sections, and word count for each section.
-    """
+        You are a content strategist specializing in SEO. Create an SEO content outline for a blog targeting the keyword '{keyword}'. Follow these guidelines:
+        - Search Intent: Align the outline with user search intent (e.g., informational, commercial investigation, how-to guide).
+        - Structure: Include an optimized title (55-60 characters), meta description (150-160 characters), and 4-5 H2 sections with suggested word counts for each.
+        - Readability: Ensure the outline supports content written in simple English, targeting Grade 8 readability, avoiding passive voice and complex words.
+        - E-E-A-T: Suggest including stats or examples from credible sources (e.g., IEA or Electrek for EVs, PetMD for pets) and real-world examples relevant to '{keyword}' (e.g., 'As a user, I tested...').
+        - SEO: Incorporate the primary keyword '{keyword}' at 1-2% density and use related LSI/NLP keywords naturally. Suggest 2-3 internal links to related articles and 3-5 images with alt text containing '{keyword}' or related terms.
+        - Analyze the top 5 Google search results for '{keyword}' to ensure the outline is competitive and relevant.
+        Output format:
+        - Title: [Optimized title]
+        - Meta Description: [Optimized meta description]
+        - Outline:
+        - H2: [Section title] ([Word count])
+            - Key points: [Brief description]
+        - H2: [Section title] ([Word count])
+            - Key points: [Brief description]
+        """
     return call_ai_model(prompt)
 
 
@@ -411,23 +469,37 @@ def find_local_keywords_and_phrases(keyword, location="US"):
     
 def create_seo_content_outline(keyword):
     prompt = f"""
-    Use Google search to look up the top 5 results and create an SEO content outline for '{keyword}'. 
-    For each section, include the amount of words. 
-    Also, include an optimized title, meta description, and H2s.
-    """
-    seo_outline = call_ai_model(prompt)
-    return seo_outline
+        You are a content strategist specializing in SEO. Create an SEO content outline for '{keyword}' by analyzing the top 5 Google search results. Follow these guidelines:
+        - Search Intent: Align the outline with user search intent (e.g., informational, commercial investigation, how-to guide).
+        - Structure: Include an optimized title (55-60 characters), meta description (150-160 characters), and 4-5 H2 sections with word counts for each.
+        - Readability: Ensure the outline supports content written in simple English, targeting Grade 8 readability, avoiding passive voice and complex words.
+        - E-E-A-T: Suggest including stats or examples from credible sources (e.g., IEA or Electrek for EVs, PetMD for pets) and real-world examples relevant to '{keyword}'.
+        - SEO: Incorporate '{keyword}' at 1-2% density, use related LSI/NLP keywords naturally, and suggest 2-3 internal links and 3-5 images with alt text containing '{keyword}' or related terms.
+        - Important: All examples (e.g., 'pet-friendly electric cars 2025') are illustrative. Replace them with content related to '{keyword}'.
+        Output format:
+        - Title: [Optimized title]
+        - Meta Description: [Optimized meta description]
+        - Outline:
+        - H2: [Section title] ([Word count])
+            - Key points: [Brief description]
+        - H2: [Section title] ([Word count])
+            - Key points: [Brief description]
+        """
+    return call_ai_model(prompt)
 
 def optimize_outline(outline, keyword):
     prompt = f"""
-    Please optimize this outline to target the primary keyword '{keyword}' at a 3% density. 
-    Use other keywords naturally. Add an FAQ section to Optimized Outline and provide an appropriate title and meta description.
-    Format output:
-        **Title:**...
-        **Meta Description:**....
-        **Optimized Outline:**...
-    Outline: {outline}
-    """
+        Please optimize this outline to target the primary keyword '{keyword}' at 1-2% density. Use related LSI/NLP keywords naturally. Add an FAQ section to the outline and provide an optimized title and meta description. Follow these guidelines:
+        - Readability: Ensure the outline supports content written in simple English, targeting Grade 8 readability, avoiding passive voice and complex words.
+        - E-E-A-T: Suggest including stats or examples from credible sources (e.g., IEA or Electrek for EVs, PetMD for pets) and real-world examples relevant to '{keyword}' in the FAQ section.
+        - SEO: Suggest 2-3 internal links and 3-5 images with alt text containing '{keyword}' or related terms. Ensure the title is 55-60 characters and meta description is 150-160 characters.
+        - Important: All examples (e.g., 'pet-friendly electric cars 2025') are illustrative. Replace them with content related to '{keyword}'.
+        - Output format:
+            **Title:** [Optimized title]
+            **Meta Description:** [Optimized meta description]
+            **Optimized Outline:** [Optimized outline with FAQ section]
+        Outline: {outline}
+        """
     result_text = call_ai_model(prompt)
     try:
         title_start = result_text.find("**Title:**")
@@ -453,7 +525,72 @@ def optimize_outline(outline, keyword):
     
 def write_content(outline, keyword, secondaryKeywords, LSIandNLPKeywords):
     prompt = f"""
-    Start writing the content with {outline}, one section at a time, auto next section and combine all section to an completed article. Utilize the {keyword}, secondary keywords: {secondaryKeywords}, LSI and NLP keywords : {LSIandNLPKeywords} listed through out the content naturally. Also, maintain the word count specified for each section. Note that I want the content to be written like it was written by a subject matter expert, without fluff or jargon. The content you produce should also have low AI content detection scores and should reflect the same when passed through AI content detectors. Write in a [tone/style: informative] voice that engages the reader. The content should sound like it was written by a person, not a machine. Avoid clichés, jargon, and overly complex sentence structures.. Focus on originality. Do not plagiarize existing work. Ensure the facts and ideas presented are accurate and well-researched.
-    output is only completed article to retrieve data easily to post wordpress.
-    """
-    return call_ai_model(prompt)
+        Write a complete article based on {outline}, one section at a time, combining all sections into a cohesive piece. Utilize the primary keyword '{keyword}' at 1-2% density, secondary keywords: {secondaryKeywords}, and LSI/NLP keywords: {LSIandNLPKeywords} naturally throughout the content. Target a word count of 1000-1500 words. Follow these guidelines:
+        - Tone/style: Informative, engaging, written like a subject matter expert, without fluff or jargon.
+        - Readability: Target Grade 8 readability, using simple English, avoiding passive voice and complex words (e.g., use 'use' instead of 'utilize').
+        - E-E-A-T:
+        - Include stats or examples from credible sources relevant to '{keyword}' (e.g., IEA, Electrek, Hyundai owner’s manual).
+        - Add 2-3 real-world examples from EV owners or experts relevant to '{keyword}'.
+        - Include an author bio relevant to '{keyword}' at the end.
+        - SEO:
+        - Include a meta title (55-60 characters) and meta description (150-160 characters) incorporating '{keyword}'.
+        - Suggest 3 image placements with alt text incorporating '{keyword}' or related terms (e.g., '{keyword} 2025' or a variation).
+        - Include 2-3 internal links to related articles relevant to '{keyword}'.
+        - Formatting:
+        - Use HTML tags for headings (e.g., <h2>Section Title</h2>) instead of Markdown.
+        - Format the primary keyword '{keyword}' using <strong><em>{keyword}</em></strong> at least once per section.
+        - Ensure pure HTML output, free of Markdown symbols.
+        - Insert exactly three placeholders: [INSERT_IMAGE_1] after Introduction, [INSERT_IMAGE_2] after Common Symbols, and [INSERT_IMAGE_3] after Conclusion.
+        - Structure and Depth:
+        - Expand the introduction with EV market trends and importance of '{keyword}'.
+        - Add 'Advanced Dashboard Features' covering unique technologies.
+        - Include 'Real Owner Stories' with 2-3 personal experiences.
+        - Expand FAQ with 5-7 questions and detailed answers.
+        - Image Integration:
+        - Suggest 3 image placements within sections: one after Introduction, one after Common Symbols, and one after Conclusion.
+        - Provide descriptive prompts for images based on '{keyword}' (e.g., 'dashboard with {keyword} in daylight', 'close-up of {keyword}').
+        - Use placeholders [INSERT_IMAGE_1], [INSERT_IMAGE_2], and [INSERT_IMAGE_3] for image insertion.
+        - Originality: Ensure low AI detection scores by varying sentence structures and unique examples. Avoid plagiarism.
+        - Important: Replace illustrative examples (e.g., 'pet-friendly electric cars 2025') with '{keyword}' or related terms.
+        - Output: Complete article in HTML, including meta title, meta description, and author bio, with image placeholders or URLs.
+        """
+    content = call_ai_model(prompt, model="meta-llama/llama-3.1-8b-instruct:free")
+    
+    if content:
+        image_positions = {
+            "[INSERT_IMAGE_1]": f"dashboard with {keyword} in daylight",
+            "[INSERT_IMAGE_2]": f"close-up of {keyword}",
+            "[INSERT_IMAGE_3]": f"interior with {keyword} 2025"
+        }
+        for pos, image_prompt in image_positions.items():
+            if pos in content:  # Kiểm tra xem placeholder có trong content không
+                try:
+                    # Tạo ảnh bằng Cloudflare
+                    image = generate_with_cloudflare(image_prompt)
+                    # Upload lên Cloudinary và lấy URL
+                    image_url = upload_to_cloudinary(image)
+                    alt_text = image_prompt.replace("'", "").replace('"', '')
+                    content = content.replace(pos, f'<img src="{image_url}" alt="{alt_text}">')
+                except Exception as e:
+                    logger.warning(f"Image creation/upload failed at {pos}: {e} - Skipping image")
+                    content = content.replace(pos, "")  # Loại bỏ placeholder nếu lỗi
+            else:
+                logger.warning(f"Placeholder {pos} not found in content - Skipping image insertion")
+    return content
+
+def upload_to_cloudinary(image):
+    try:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_image_path = f"generated_image_{timestamp}.jpg"
+        image.save(temp_image_path, format="JPEG")
+
+        upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
+        logger.info(f"Upload successful: {upload_result['secure_url']}")
+
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            print("🗑️ Temporary internal content file deleted.")
+        return upload_result["secure_url"]
+    except Exception as e:
+        logger.error(f"Cloudinary upload failed: {e}")
+        raise Exception(f"Cloudinary upload failed: {e}")
