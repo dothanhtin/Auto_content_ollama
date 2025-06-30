@@ -55,7 +55,7 @@ def generate_with_cloudflare(prompt, num_inference_steps=30, guidance_scale=9.0,
                         image = Image.open(BytesIO(response.content))
                         logger.info("Image generated successfully from binary PNG data")
                         # Tối ưu kích thước (giảm xuống 800x800 để upload dễ hơn)
-                        image = image.resize((738, 421), Image.Resampling.LANCZOS)
+                        image = image.resize((738, 521), Image.Resampling.LANCZOS)
                         return image
                     except Exception as e:
                         logger.error(f"Image processing error: {e}")
@@ -86,10 +86,11 @@ def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_t
         try:
             print("✨ Trying HuggingFace...")
             client = InferenceClient(
-                provider="fal-ai",
+                provider="hf-inference",
                 api_key=config.HF_API_KEY
             )
             image = client.text_to_image(prompt, model=model)
+            image = image.resize((738, 521), Image.Resampling.LANCZOS)
         except Exception as e:
             print(f"⚠️ HuggingFace failed: {str(e)}")
             print("✨ Falling back to Cloudflare...")
