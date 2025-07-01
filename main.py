@@ -121,8 +121,8 @@ class SEOContentPipeline:
         wp_password = siteResult["password"]
 
         #Ghi log chỗ này
-        # logger.info(f"wp_domain_url: {wp_domain_url}, wp_url: {wp_url}, full_url: {url}")
-        # logger.info(f"wp_username: {wp_username}, wp_password: {wp_password}")
+        logger.info(f"wp_domain_url: {wp_domain_url}, wp_url: {wp_url}, full_url: {url}")
+        logger.info(f"wp_username: {wp_username}, wp_password: {wp_password}")
 
         wp_client = Client(url, wp_username, wp_password)
         post_id = wp_client.call(NewPost(post))
