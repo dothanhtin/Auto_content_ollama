@@ -115,10 +115,14 @@ class SEOContentPipeline:
         if not siteResult:
             raise Exception("Site not found")
         
-        wp_domain_url = siteResult["url"]
+        #wp_domain_url = siteResult["url"]
+        wp_domain_url = siteResult.get("url")
         url = wp_domain_url + wp_url
-        wp_username = siteResult["username"]
-        wp_password = siteResult["password"]
+        # wp_username = siteResult["username"]
+        # wp_password = siteResult["password"]
+
+        wp_username = siteResult.get("username")
+        wp_password = siteResult.get("password")
 
         #Ghi log chỗ này
         logger.info(f"wp_domain_url: {wp_domain_url}, wp_url: {wp_url}, full_url: {url}")
