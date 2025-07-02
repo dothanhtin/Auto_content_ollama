@@ -175,7 +175,7 @@ def get_image_url(query):
     return None
 
 def get_youtube_video_id(query, youtube_api_key):
-    youtube = build("youtube", "v3", developerKey=youtube_api_key)
+    youtube = build("youtube", "v3", developerKey=youtube_api_key, cache_discovery=False)
     try:
         response = youtube.search().list(
             q=query,

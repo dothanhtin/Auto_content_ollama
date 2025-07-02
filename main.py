@@ -97,6 +97,7 @@ class SEOContentPipeline:
         self.context["content"] = content
 
         # Bước 5: Đăng bài lên WordPress
+        logger.info(f"Đăng bài lên WordPress!")
         post = WordPressPost()
         formatted_title = helpers.format_title(optimized_outline.get("title", self.keyword.title()))
         post.title = formatted_title
@@ -113,6 +114,7 @@ class SEOContentPipeline:
 
         siteResult = get_site_by_id_sync(self.siteId)
         if not siteResult:
+            logger.info("Site not found")
             raise Exception("Site not found")
         
         #wp_domain_url = siteResult["url"]
