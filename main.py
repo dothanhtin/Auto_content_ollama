@@ -264,12 +264,13 @@ def import_and_write_seo_content(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/sites",dependencies=[Depends(auth.token_auth)])
+@app.get("/sites", dependencies=[Depends(auth.token_auth)])
 async def get_sites():
     try:
         sites = []
-        async for site in db.collection.find({}, {"_id": 0}):  # Không lấy _id
-            sites.append(site)
+        async with db.get_collection() as collection:  # Sử dụng context manager
+            async for site in collection.find({}, {"_id": 0}):  # Không lấy _id
+                sites.append(site)
         return {"sites": sites}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
