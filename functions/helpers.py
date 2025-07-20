@@ -13,6 +13,7 @@ from PIL import Image
 from io import BytesIO
 import logging
 import time
+import tempfile
 
 # -------------------------
 # Các hàm hỗ trợ (helper functions)
@@ -81,6 +82,54 @@ def generate_with_cloudflare(prompt, num_inference_steps=30, guidance_scale=9.0,
 
     raise Exception("Failed to generate image after all retries")
 
+#call in local
+# def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_token):
+#     try:
+#         try:
+#             print("✨ Trying HuggingFace...")
+#             client = InferenceClient(
+#                 provider="hf-inference",
+#                 api_key=config.HF_API_KEY
+#             )
+#             image = client.text_to_image(prompt, model=model)
+#             image = image.resize((738, 521), Image.Resampling.LANCZOS)
+#         except Exception as e:
+#             print(f"⚠️ HuggingFace failed: {str(e)}")
+#             print("✨ Falling back to Cloudflare...")
+#             image = generate_with_cloudflare(prompt)
+
+#         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+#         temp_image_path = f"generated_image_{timestamp}.jpg"
+#         image.save(temp_image_path, format="JPEG")
+
+#         upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
+#         image_url = upload_result.get("secure_url")
+#         print(f"✅ Image uploaded: {image_url}")
+
+#         # Cập nhật ảnh đại diện
+#         wordpress_api_url = f"{wp_domain_url}/wp-json/fifu-api/v1/set-image"
+#         headers = {
+#             "Content-Type": "application/json",
+#             "Authorization": f"Bearer {wordpress_token}"
+#         }
+#         data = {"post_id": post_id, "image_url": image_url}
+#         response = requests.post(wordpress_api_url, json=data, headers=headers)
+#         if response.status_code == 200:
+#             print("✅ Featured Image updated successfully!")
+#         else:
+#             print("❌ Failed to update Featured Image:", response.text)
+
+#         if os.path.exists(temp_image_path):
+#             os.remove(temp_image_path)
+#             print("🗑️ Temporary file deleted.")
+
+#         return image_url
+
+#     except Exception as e:
+#         print("❌ Error:", str(e))
+#         return None
+    
+#call in vercel
 def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_token):
     try:
         try:
@@ -96,15 +145,17 @@ def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_t
             print("✨ Falling back to Cloudflare...")
             image = generate_with_cloudflare(prompt)
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_image_path = f"generated_image_{timestamp}.jpg"
-        image.save(temp_image_path, format="JPEG")
+        # Ghi ảnh vào file tạm
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+            image.save(tmp_file, format="JPEG")
+            temp_image_path = tmp_file.name
 
+        # Upload lên Cloudinary
         upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
         image_url = upload_result.get("secure_url")
         print(f"✅ Image uploaded: {image_url}")
 
-        # Cập nhật ảnh đại diện
+        # Cập nhật Featured Image trong WordPress
         wordpress_api_url = f"{wp_domain_url}/wp-json/fifu-api/v1/set-image"
         headers = {
             "Content-Type": "application/json",
@@ -112,11 +163,13 @@ def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_t
         }
         data = {"post_id": post_id, "image_url": image_url}
         response = requests.post(wordpress_api_url, json=data, headers=headers)
+
         if response.status_code == 200:
             print("✅ Featured Image updated successfully!")
         else:
             print("❌ Failed to update Featured Image:", response.text)
 
+        # Xoá file tạm
         if os.path.exists(temp_image_path):
             os.remove(temp_image_path)
             print("🗑️ Temporary file deleted.")
@@ -126,7 +179,7 @@ def generate_and_upload_image(prompt, model, post_id, wp_domain_url, wordpress_t
     except Exception as e:
         print("❌ Error:", str(e))
         return None
-    
+
 def get_wordpress_token(wp_domain_url,username, password):
     url = wp_domain_url + "/wp-json/jwt-auth/v1/token"
     headers = {"Content-Type": "application/json"}
