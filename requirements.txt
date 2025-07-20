@@ -9,7 +9,7 @@ google_auth_oauthlib
 cloudinary
 redis
 python-dotenv
-pandas
+#pandas
 motor
 httpx
 python-multipart

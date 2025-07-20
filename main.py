@@ -12,7 +12,7 @@ import config
 import httpx
 from fastapi.routing import APIRoute
 import auth.auth as auth
-import pandas as pd
+#import pandas as pd
 from typing import List
 import database.databaseconnection as db
 import functions.helpers  as helpers
@@ -232,31 +232,31 @@ def seo_pipeline_bulk(request: ListKeywordRequest):
     
     return results
 
-@app.post("/import_and_write_seo_content",dependencies=[Depends(auth.token_auth)])
-def import_and_write_seo_content(
-    file: FastAPIUploadFile = File(...),
-    siteId: str = 1
-):
-    try:
-        df = pd.read_excel(file.file)
-        if "Keyword" not in df.columns:
-            raise HTTPException(status_code=400, detail="Excel file must contain a 'Keyword' column")
+# @app.post("/import_and_write_seo_content",dependencies=[Depends(auth.token_auth)])
+# def import_and_write_seo_content(
+#     file: FastAPIUploadFile = File(...),
+#     siteId: str = 1
+# ):
+#     try:
+#         df = pd.read_excel(file.file)
+#         if "Keyword" not in df.columns:
+#             raise HTTPException(status_code=400, detail="Excel file must contain a 'Keyword' column")
         
-        keywords = df["Keyword"].dropna().tolist()
-        results = []
+#         keywords = df["Keyword"].dropna().tolist()
+#         results = []
         
-        for keyword in keywords:
-            pipeline = SEOContentPipeline(keyword, siteId)  # Truyền thêm URL vào pipeline
-            try:
-                result = pipeline.run_pipeline()
-                results.append({keyword: result})
-            except Exception as e:
-                results.append({keyword: f"Error: {str(e)}"})
+#         for keyword in keywords:
+#             pipeline = SEOContentPipeline(keyword, siteId)  # Truyền thêm URL vào pipeline
+#             try:
+#                 result = pipeline.run_pipeline()
+#                 results.append({keyword: result})
+#             except Exception as e:
+#                 results.append({keyword: f"Error: {str(e)}"})
         
-        return results
+#         return results
     
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/sites",dependencies=[Depends(auth.token_auth)])
 async def get_sites():
