@@ -5,7 +5,7 @@ pydantic
 python-wordpress-xmlrpc
 google-api-python-client
 google_auth_oauthlib
-huggingface_hub
+#huggingface_hub
 cloudinary
 redis
 python-dotenv
