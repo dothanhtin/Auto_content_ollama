@@ -633,18 +633,17 @@ def write_content(outline, keyword, secondaryKeywords, LSIandNLPKeywords):
     return content
 
 def upload_to_cloudinary(image):
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
+        image.save(tmp_file, format="JPEG")
+        tmp_file.flush()
+        temp_path = tmp_file.name
+
     try:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_image_path = f"generated_image_{timestamp}.jpg"
-        image.save(temp_image_path, format="JPEG")
-
-        upload_result = cloudinary.uploader.upload(temp_image_path, folder="ai_generated_images")
-        logger.info(f"Upload successful: {upload_result['secure_url']}")
-
-        if os.path.exists(temp_image_path):
-            os.remove(temp_image_path)
-            print("🗑️ Temporary internal content file deleted.")
-        return upload_result["secure_url"]
-    except Exception as e:
-        logger.error(f"Cloudinary upload failed: {e}")
-        raise Exception(f"Cloudinary upload failed: {e}")
+        result = cloudinary.uploader.upload(temp_path, folder="ai_generated_images")
+        image_url = result.get("secure_url")
+        logger.info(f"✅ Uploaded image to Cloudinary: {image_url}")
+        return image_url
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            logger.info("🗑️ Deleted temp image file.")
